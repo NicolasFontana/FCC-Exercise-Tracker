@@ -18,7 +18,7 @@ const userSchema = new mongoose.Schema({
   log: [
     {
       _id: false,
-      date: String,
+      date: {type: String, required: false},
       duration: Number,
       description: String
     }
@@ -72,44 +72,41 @@ app.post("/api/users", async (req, res) => {
 
 // exercises routes
 
-app.post("/api/users/:_id/exercises", (req, res) => {
-  const description = req.body.description;
-  const duration = parseInt(req.body.duration);
-  const date = req.body.date ? "Mon Jan 01 1990" : "Tue Nov 29 2022";
-  const userId = req.params._id;
+app.post("/api/users/:_id/exercises", async (req, res) => {
+  try {
+    const description = req.body.description;
+    const duration = parseInt(req.body.duration);
+    let date = req.body.date
+    const userId = req.params._id;
+    console.log(userId, description, duration, date)
 
-  // if (!date) {
-  //   date = new Date();
-  // } else {
-  //   date = new Date(date);
-  // }
-  const exercise = {
-    date,
-    duration,
-    description,
-  };
-  Username.findByIdAndUpdate(
-    userId,
-    { $push: { log: exercise }, $inc: {count: 1} },
-    { new: true },
-    (err, user) => {
-      if (user) {
-        const updatedExercise = {
-          _id: userId,
-          username: user.username,
-          ...exercise,
-        };
-        res.json(updatedExercise);
-      }
-      if(err) {
-        res.status(404).json({
-          message: err.message,
-          data: undefined,
-          error: true
-        })
-      }
+    if (!date) {
+      date = new Date().toDateString();
+    } else {
+      date = new Date(date).toDateString();
     }
-  );
+
+    const exercise = {
+      date,
+      duration,
+      description,
+    };
+    await Username.findByIdAndUpdate(userId, { $push: {log: exercise }, $inc: {count: 1}}, { new: true })
+    const userUpdated = await Username.findById(userId)
+    res.json({
+      username: userUpdated.username,
+      date: exercise.date,
+      duration: exercise.duration,
+      description: exercise.description,
+      _id: userId
+    })
+  } catch(err) {
+    return res.status(400).json({
+      message: err.message,
+      data: undefined,
+      error: true,
+    });
+  }
 });
 
 // logs routes
@@ -118,34 +115,37 @@ app.get('/api/users/:_id/logs', async (req, res) => {
   try {
     const { from, to, limit} = req.query
     const foundedUser = await Username.findById(req.params._id)
-    // if(!foundedUser) {
-    //   return res.status(404).json({
-    //     message: "This ID doesn't exist",
-    //     data: undefined,
-    //     error: true
-    //   })
-    // }
+    if(!foundedUser) {
+      return res.status(404).json({
+        message: "This ID doesn't exist",
+        data: undefined,
+        error: true
+      })
+    }
     if(from || to || limit) {
       const fromDate = new Date(from) == "Invalid Date" ? undefined : new Date(from)
       const toDate = new Date(to) == "Invalid Date" ? undefined : new Date(to)
       if(fromDate && toDate) {
         const logFiltered = foundedUser.log.filter(log => (new Date(log.date) > fromDate && new Date(log.date) < toDate)).slice(0, Number(limit) ? limit : undefined)
-        console.log('1',req.params._id ,from, to, limit, logFiltered)
+        logFiltered.forEach(x => {
+          x.date = new Date(x.date).toDateString()
+        })
         return res.json({
-          _id: foundedUser._id,
+          _id: foundedUser._id.toString(),
           username: foundedUser.username,
           from: fromDate.toDateString(),
           to: toDate.toDateString(),
           count: logFiltered.length,
-          log: logFiltered == [] ? "undefined" : 'logFiltered'
+          log: logFiltered
         })
       }
       if(fromDate) {
-        console.log('2')
         const logFiltered = foundedUser.log.filter(log => (new Date(log.date) > fromDate)).slice(0, Number(limit) ? limit : undefined)
-        console.log('2', logFiltered)
+        logFiltered.forEach(x => {
+          x.date = new Date(x.date).toDateString()
+        })
         return res.json({
-          _id: foundedUser._id,
+          _id: foundedUser._id.toString(),
           username: foundedUser.username,
           from: fromDate.toDateString(),
           count: logFiltered.length,
@@ -153,11 +153,12 @@ app.get('/api/users/:_id/logs', async (req, res) => {
         })
       }
       if(toDate) {
-        console.log('3')
         const logFiltered = foundedUser.log.filter(log => (new Date(log.date) < toDate)).slice(0, Number(limit) ? limit : undefined)
-        console.log('3', logFiltered)
+        logFiltered.forEach(x => {
+          x.date = new Date(x.date).toDateString()
+        })
         return res.json({
-          _id: foundedUser._id,
+          _id: foundedUser._id.toString(),
           username: foundedUser.username,
           to: toDate.toDateString(),
           count: logFiltered.length,
@@ -165,26 +166,34 @@ app.get('/api/users/:_id/logs', async (req, res) => {
         })
       }
       if(limit) {
-        console.log('5')
         const logFiltered = foundedUser.log.slice(0, Number(limit) ? limit : undefined)
+        logFiltered.forEach(x => {
+          x.date = new Date(x.date).toDateString()
+        })
         return res.json({
-          _id: foundedUser._id,
+          _id: foundedUser._id.toString(),
           username: foundedUser.username,
           count: logFiltered.length,
           log: logFiltered
         })
       }
     } else {
-      console.log('4', foundedUser)
-      return res.json(foundedUser)
+      foundedUser.log.forEach(x => {
+        x.date = new Date(x.date).toDateString()
+      })
+      return res.json({
+        _id: foundedUser._id.toString(),
+        username: foundedUser.username,
+        count: foundedUser.log.length,
+        log: foundedUser.log
+      })
     }
   } catch(err) {
-    console.log(err)
-    // return res.status(500).json({
-    //   message: err.message,
-    //   data: undefined,
-    //   error: true
-    // })
+    return res.status(500).json({
+      message: err.message,
+      data: undefined,
+      error: true
+    })
   }
 })
 
